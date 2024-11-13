@@ -1,0 +1,11 @@
+OnlineShop_API/.vs
+/.vs
+.vs
+*/.vs
+*.dll
+*.vsidx
+*.v2
+*.suo
+bin/
+obj/
+appsettings.Development.json
