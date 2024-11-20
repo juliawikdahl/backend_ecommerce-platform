@@ -33,6 +33,7 @@ namespace OnlineShop_API.Controllers
             // Skapa en lista av DTO:er
             var productDtos = products.Select(product => new ProductsDto
             {
+                Id = product.Id,
                 Name = product.Name,
                 Description = product.Description,
                 Price = product.Price,

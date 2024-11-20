@@ -5,15 +5,26 @@ using Microsoft.IdentityModel.Tokens;
 using OnlineShop_API.data;
 using OnlineShop_API.Data;
 using OnlineShop_API.Identity;
-
 using System.Security.Cryptography;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
-
 builder.Services.AddControllers();
+
+// CORS configuration to allow frontend access (Vue app)
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAll", policy =>
+    {
+        policy.AllowAnyOrigin()  // Allow all origins
+              .AllowAnyMethod()  // Allow all HTTP methods (GET, POST, etc.)
+              .AllowAnyHeader(); // Allow all headers
+    });
+});
+
+// JWT Authentication Configuration
 builder.Services.AddAuthentication(options =>
 {
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -32,37 +43,28 @@ builder.Services.AddAuthentication(options =>
         IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]))
     };
 });
+
+// Authorization Configuration (optional, depends on your app's needs)
 builder.Services.AddAuthorization(options =>
 {
-    options.AddPolicy(IdentityData.AdminUserPolicyName, policy => 
+    options.AddPolicy(IdentityData.AdminUserPolicyName, policy =>
         policy.RequireClaim("IsAdmin", "true"));
 });
 
-builder.Services.Configure<StripeSettings>(builder.Configuration.GetSection("StripeSettings"));
+// Stripe Configuration (for payment)
+builder.Services.Configure<StripeSettings>(builder.Configuration.GetSection("Stripe"));
 builder.Services.AddTransient<StripeService>();
 
-static void Main()
-{
-    using (var rng = new RNGCryptoServiceProvider())
-    {
-        byte[] tokenData = new byte[32]; // 32 bytes for 256 bits
-        rng.GetBytes(tokenData);
-        Console.WriteLine(Convert.ToBase64String(tokenData));
-    }
-}
-
-
-
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+// Database Configuration with Entity Framework
 builder.Services.AddDbContext<OnlineShopDbContext>(options =>
 {
-   
     var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
     options.UseSqlServer(connectionString);
 });
 
+// Swagger Configuration (optional, for API documentation)
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
@@ -75,12 +77,13 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
+// Enable CORS
+app.UseCors("AllowAll");
+
 app.UseAuthentication();
-
-
-
 app.UseAuthorization();
 
+// Map controllers (API routes)
 app.MapControllers();
 
 app.Run();

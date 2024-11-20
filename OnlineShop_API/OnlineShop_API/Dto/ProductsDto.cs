@@ -4,6 +4,11 @@ namespace OnlineShop_API.DTOs
 {
     public class ProductsDto
     {
+        [Key]
+        [Required]
+        public int Id { get; set; } // ID 
+
+
         [Required]
         [StringLength(100, ErrorMessage = "Product name cannot exceed 100 characters.")]
         public string Name { get; set; } // Namnet på produkten
