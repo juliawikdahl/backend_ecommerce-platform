@@ -12,6 +12,7 @@ using OnlineShop_API.Dto;
 using OnlineShop_API.DTOs;
 using OnlineShop_API.Identity;
 using Microsoft.AspNetCore.Authorization;
+using Stripe.Climate;
 
 namespace OnlineShop_API.Controllers
 {
@@ -99,6 +100,29 @@ namespace OnlineShop_API.Controllers
             var users = await _context.Users.ToListAsync(); // Hämtar alla användare från databasen
             return Ok(users); // Returnerar användarna som JSON
         }
+        // GET: api/users/profile
+        [HttpGet("profile")]
+        [Authorize]
+        public IActionResult GetUserProfile()
+        {
+            // Hämta användarens ID från JWT-tokenet
+            var userId = GetCurrentUserId();
+
+            // Hämta användaren från databasen baserat på användarens ID
+            var user = _context.Users
+                .FirstOrDefault(u => u.Id == userId);
+
+            if (user == null)
+            {
+                return NotFound("User not found.");
+            }
+
+            // Ta bort lösenordet från användarobjektet för att inte exponera det
+            user.Password = null;
+
+            return Ok(user); // Returnera hela användarobjektet utan lösenord
+        }
+
 
         [HttpPut("profile")]
         [Authorize]
@@ -164,20 +188,53 @@ namespace OnlineShop_API.Controllers
             return Ok("Password changed successfully."); // Returnera framgångsmeddelande
         }
 
-
-        // GET: api/users/orders
         [HttpGet("orders")]
         [Authorize]
-        public IActionResult GetUserOrders()
+        public async Task<ActionResult<IEnumerable<OrderCreatedDto>>> GetUserOrders()
         {
-            var userId = GetCurrentUserId();
-            var orders = _context.Orders
-                .Where(o => o.UserId == userId)
-                .Include(o => o.OrderItems) // Inkludera orderartiklar
-                .ToList();
+            // Hämta användarens ID från JWT-tokenet
+            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+            if (userIdClaim == null || !int.TryParse(userIdClaim.Value, out int userId))
+            {
+                return Unauthorized("Användar-ID saknas i token.");
+            }
 
-            return Ok(orders);
+            // Hämta ordrar för den specifika användaren
+            var orders = await _context.Orders
+                .Where(o => o.UserId == userId && o.Status != Status.Pending && o.Status != Status.Canceled)
+                .Include(o => o.OrderItems)
+                .ThenInclude(oi => oi.Product) // Hämtar även produktinformation
+                .ToListAsync();
+
+            if (orders == null || !orders.Any())
+            {
+                return NotFound("Inga ordrar hittades för denna användare.");
+            }
+
+            // Konvertera till DTO för att returnera en ren JSON-struktur
+            var orderDtos = orders.Select(o => new OrderCreatedDto
+            {
+                OrderId = o.Id,
+                OrderDate = o.OrderDate,
+                Status = o.Status.ToString(),
+                TotalAmount = o.TotalAmount,
+                OrderItems = o.OrderItems.Select(oi => new OrderItemDto
+                {
+                    ProductId = oi.ProductId,
+                    Quantity = oi.Quantity,
+                    Price = oi.Product?.Price ?? 0, // Om produkten finns, hämta priset
+                    ProductName = oi.Product?.Name ?? "Okänd produkt", // Hämtar produktens namn
+                    EncodedImage = oi.Product?.EncodedImage // Lägg till bildens URL
+                }).ToList()
+            }).ToList();
+
+            return Ok(orderDtos);
         }
+
+
+
+
+
 
         // Helper methods
         private string HashPassword(string password)

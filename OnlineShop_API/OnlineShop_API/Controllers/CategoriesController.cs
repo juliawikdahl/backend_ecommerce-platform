@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using OnlineShop_API.Data;
+using OnlineShop_API.Dto;
 using OnlineShop_API.DTOs;
 using OnlineShop_API.Identity;
 using OnlineShop_API.Models;
@@ -22,7 +23,6 @@ namespace OnlineShop_API.Controllers
             _context = context;
         }
 
-        // GET: api/categories
         [HttpGet]
         public async Task<ActionResult<IEnumerable<object>>> GetCategories()
         {
@@ -32,18 +32,18 @@ namespace OnlineShop_API.Controllers
 
             var result = categories.Select(c => new
             {
-                Category = new CategoryDto
+                Id = c.Id, 
+                Name = c.Name, 
+                SubCategories = c.SubCategories.Select(sc => new
                 {
-                    Name = c.Name
-                },
-                SubCategories = c.SubCategories.Select(sc => new SubCategoryDto
-                {
-                    Name = sc.Name
+                    Id = sc.Id, 
+                    Name = sc.Name 
                 }).ToList()
             }).ToList();
 
             return Ok(result);
         }
+
 
         // POST: api/categories
         [HttpPost]
@@ -65,6 +65,28 @@ namespace OnlineShop_API.Controllers
 
             return CreatedAtAction(nameof(GetCategories), new { id = category.Id }, new { category.Id, category.Name });
         }
+        // GET: api/categories/subcategories
+        [HttpGet("subcategories")]
+        public async Task<ActionResult<IEnumerable<object>>> GetAllSubcategories()
+        {
+            var subcategories = await _context.SubCategories
+                .Include(sc => sc.Category)
+                .ToListAsync();
+
+            var result = subcategories.Select(sc => new
+            {
+                Id = sc.Id,
+                Name = sc.Name,
+                Category = new
+                {
+                    Id = sc.Category.Id,
+                    Name = sc.Category.Name
+                }
+            }).ToList();
+
+            return Ok(result);
+        }
+
 
         // POST: api/categories/{categoryId}/subcategories
         [HttpPost("{categoryId}/subcategories")]
@@ -138,39 +160,58 @@ namespace OnlineShop_API.Controllers
 
             await _context.SaveChangesAsync();
 
-            return NoContent();
+            return Ok(new { success = true });
         }
 
-        // PUT: api/categories/{categoryId}/subcategories/{subcategoryId}
-        [HttpPut("{categoryId}/subcategories/{subcategoryId}")]
+        [HttpPut("subcategories/{subcategoryId}")]
         [Authorize(Policy = IdentityData.AdminUserPolicyName)]
-        public async Task<IActionResult> PutSubcategory(int categoryId, int subcategoryId, [FromBody] SubCategoryDto subCategoryDto)
+        public async Task<IActionResult> PutSubcategory(int subcategoryId, [FromBody] UpdateSubCategoryDto subCategoryDto)
         {
             if (subCategoryDto == null || string.IsNullOrEmpty(subCategoryDto.Name))
             {
                 return BadRequest("Subcategory name is required.");
             }
 
+            // Hämta subkategorin baserat på subcategoryId
             var subcategory = await _context.SubCategories.FindAsync(subcategoryId);
-            if (subcategory == null || subcategory.CategoryId != categoryId)
+            if (subcategory == null)
             {
-                return NotFound("Subcategory not found.");
+                return NotFound($"Subcategory with ID {subcategoryId} not found.");
             }
 
+            // Om categoryId har ändrats
+            if (subCategoryDto.CategoryId != subcategory.CategoryId)
+            {
+                // Hämta den nya kategorin baserat på det nya categoryId
+                var category = await _context.Categories.FindAsync(subCategoryDto.CategoryId);
+                if (category == null)
+                {
+                    return NotFound($"Category with ID {subCategoryDto.CategoryId} not found.");
+                }
+
+                // Uppdatera categoryId för subkategorin
+                subcategory.CategoryId = subCategoryDto.CategoryId;
+            }
+
+            // Uppdatera subkategoriens namn
             subcategory.Name = subCategoryDto.Name;
+
+            // Markera att subkategorin har ändrats
             _context.Entry(subcategory).State = EntityState.Modified;
 
+            // Spara ändringarna i databasen
             await _context.SaveChangesAsync();
 
-            return NoContent();
+            return Ok(new { success = true });
         }
 
-        [HttpDelete("{categoryId}/subcategories/{subcategoryId}")]
+
+        [HttpDelete("subcategories/{subcategoryId}")]
         [Authorize(Policy = IdentityData.AdminUserPolicyName)]
-        public async Task<IActionResult> DeleteSubcategory(int categoryId, int subcategoryId)
+        public async Task<IActionResult> DeleteSubcategory(int subcategoryId)
         {
             var subcategory = await _context.SubCategories.FindAsync(subcategoryId);
-            if (subcategory == null || subcategory.CategoryId != categoryId)
+            if (subcategory == null)
             {
                 return NotFound("Subcategory not found.");
             }
@@ -178,8 +219,9 @@ namespace OnlineShop_API.Controllers
             _context.SubCategories.Remove(subcategory);
             await _context.SaveChangesAsync();
 
-            return NoContent();
+            return Ok(new { success = true });
         }
+
 
         // DELETE: api/categories/{categoryId}
         [HttpDelete("{categoryId}")]
@@ -195,7 +237,7 @@ namespace OnlineShop_API.Controllers
             _context.Categories.Remove(category);
             await _context.SaveChangesAsync();
 
-            return NoContent();
+            return Ok(new { success = true });
         }
 
         private bool CategoryExists(int id)

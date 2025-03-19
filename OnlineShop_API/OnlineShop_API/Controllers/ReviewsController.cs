@@ -2,7 +2,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using OnlineShop_API.Data;
-using OnlineShop_API.DTOs; // Se till att du har rätt namespace för ReviewDto
+using OnlineShop_API.DTOs; 
 using OnlineShop_API.Models;
 using System.Linq;
 using System.Security.Claims;
@@ -32,7 +32,8 @@ namespace OnlineShop_API.Controllers
                     r.Rating,
                     r.Comment,
                     UserId = r.UserId, // Inkludera användarens ID
-                    UserName = _context.Users.FirstOrDefault(u => u.Id == r.UserId).Name // Hämta användarens namn
+                    UserName = _context.Users.FirstOrDefault(u => u.Id == r.UserId).Name,
+                    r.CreatedAt
                 })
                 .ToListAsync();
 
@@ -56,7 +57,8 @@ namespace OnlineShop_API.Controllers
                 ProductId = productId,
                 UserId = userId, // Sätt användarens ID
                 Rating = reviewDto.Rating,
-                Comment = reviewDto.Comment
+                Comment = reviewDto.Comment,
+              
             };
 
             _context.Reviews.Add(review);
@@ -67,7 +69,8 @@ namespace OnlineShop_API.Controllers
             {
                 Rating = review.Rating,
                 Comment = review.Comment,
-                UserId = userId // Inkludera userId i svaret
+                UserId = userId, // Inkludera userId i svaret
+                
             };
 
             return CreatedAtAction(nameof(GetProductReviews), new { productId }, responseDto);

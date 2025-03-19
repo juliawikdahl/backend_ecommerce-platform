@@ -30,12 +30,11 @@ namespace OnlineShop_API.Controllers
 
         // POST: api/wishlist
         [HttpPost]
-
         public async Task<IActionResult> AddToWishlist([FromBody] AddToWishlistDto dto)
         {
             var userId = GetCurrentUserId();
 
-            // Kontrollera om produkten redan finns i önskelistan
+            // Kontrollera om produkten redan finns i användarens önskelista
             var existingItem = await _context.WishLists
                 .FirstOrDefaultAsync(w => w.UserId == userId && w.ProductId == dto.ProductId);
             if (existingItem != null)
@@ -43,7 +42,7 @@ namespace OnlineShop_API.Controllers
                 return Conflict("Product already in wishlist.");
             }
 
-            // Lägg till produkten i önskelistan
+            // Lägg till produkt till användarens önskelista
             var wishlistItem = new WishList
             {
                 UserId = userId,
@@ -55,6 +54,7 @@ namespace OnlineShop_API.Controllers
 
             return CreatedAtAction(nameof(GetWishlist), new { productId = dto.ProductId }, wishlistItem);
         }
+
 
         // DELETE: api/wishlist/{productid}
         [HttpDelete("{productid}")]
@@ -81,7 +81,7 @@ namespace OnlineShop_API.Controllers
         public async Task<IActionResult> GetWishlist()
         {
             var userId = GetCurrentUserId();
-
+            Console.WriteLine($"Current User ID: {userId}");
             // Hämta alla produkt-ID:n från användarens önskelista
             var wishlistItems = await _context.WishLists
                 .Where(w => w.UserId == userId)
@@ -90,14 +90,15 @@ namespace OnlineShop_API.Controllers
 
             if (!wishlistItems.Any())
             {
-                return Ok(new List<ProductsDto>()); // Returnera en tom lista om ingen produkt finns i önskelistan
+                return Ok(new List<object>()); // Returnera en tom lista om ingen produkt finns i önskelistan
             }
 
             // Hämta produktinformation baserat på produkt-ID:n
             var products = await _context.Products
                 .Where(p => wishlistItems.Contains(p.Id))
-                .Select(p => new ProductsDto
+                .Select(p => new 
                 {
+                    ProductId = p.Id,
                     Name = p.Name,
                     Description = p.Description,
                     Price = p.Price,
@@ -114,7 +115,17 @@ namespace OnlineShop_API.Controllers
         private int GetCurrentUserId()
         {
             var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-            return userIdClaim != null ? int.Parse(userIdClaim.Value) : 0;
+            if (userIdClaim == null)
+            {
+                // Om det inte finns något användar-ID i token, returnera ett lämpligt fel
+                throw new UnauthorizedAccessException("User is not authenticated.");
+            }
+
+            int userId = int.Parse(userIdClaim.Value);
+            Console.WriteLine($"Fetched User ID: {userId}"); // För debug, kan tas bort när det är klart
+            return userId;
         }
+
+
     }
 }

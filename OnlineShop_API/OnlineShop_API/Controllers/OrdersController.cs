@@ -5,6 +5,7 @@ using OnlineShop_API.Data;
 using OnlineShop_API.Dto;
 using OnlineShop_API.Identity;
 using OnlineShop_API.Models;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Security.Claims;
@@ -33,7 +34,6 @@ namespace OnlineShop_API.Controllers
                 return BadRequest("Order items cannot be empty.");
             }
 
-            // Get UserId from claims
             var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
             if (userIdClaim == null || !int.TryParse(userIdClaim.Value, out int userId))
             {
@@ -42,7 +42,6 @@ namespace OnlineShop_API.Controllers
 
             var totalAmount = 0m;
             var orderItems = new List<OrderItems>();
-            var orderCreatedItems = new List<OrderItemDto>();
 
             foreach (var item in orderCreateDto.OrderItems)
             {
@@ -60,16 +59,8 @@ namespace OnlineShop_API.Controllers
 
                 orderItems.Add(orderItem);
                 totalAmount += product.Price * item.Quantity;
-
-                orderCreatedItems.Add(new OrderItemDto
-                {
-                    ProductId = item.ProductId,
-                    Quantity = item.Quantity,
-                    Price = product.Price
-                });
             }
 
-            // Skapa en order med status "Pending"
             var order = new Orders
             {
                 UserId = userId,
@@ -82,10 +73,30 @@ namespace OnlineShop_API.Controllers
             await _context.Orders.AddAsync(order);
             await _context.SaveChangesAsync();
 
-            // Skicka inte bekräftelsen än. Vänta på Stripe-betalningen
-            return Ok(new { Message = "Order created successfully. Please complete the payment to confirm the order." });
+            // Skicka tillbaka orderId tillsammans med andra relevanta data
+            return Ok(new
+            {
+                Message = "Order created successfully. Please complete the payment to confirm the order.",
+                OrderId = order.Id // Lägg till orderId i svaret
+            });
         }
 
+
+        // Kontrollera om ordern ska avbrytas (om den är äldre än 24 timmar)
+        private async Task CancelExpiredOrders()
+        {
+            var expiredOrders = await _context.Orders
+                .Where(o => o.Status == Status.Pending &&
+                            EF.Functions.DateDiffHour(o.OrderDate, DateTime.UtcNow) > 24)  // Använd EF.Functions.DateDiffHour
+                .ToListAsync();
+
+            foreach (var order in expiredOrders)
+            {
+                order.Status = Status.Canceled;
+            }
+
+            await _context.SaveChangesAsync();
+        }
 
 
         // GET: api/orders
@@ -93,6 +104,9 @@ namespace OnlineShop_API.Controllers
         [Authorize(Policy = IdentityData.AdminUserPolicyName)] // Endast administratörer kan hämta alla ordrar
         public async Task<ActionResult<IEnumerable<OrderCreatedDto>>> GetOrders()
         {
+            // Kontrollera och avbryt förfallna ordrar innan vi hämtar dem
+            await CancelExpiredOrders();
+
             var orders = await _context.Orders
                 .Include(o => o.OrderItems)
                 .ToListAsync();
@@ -118,6 +132,9 @@ namespace OnlineShop_API.Controllers
         [Authorize(Policy = IdentityData.AdminUserPolicyName)] // Endast administratörer kan hämta specifik order
         public async Task<ActionResult<OrderCreatedDto>> GetOrder(int id)
         {
+            // Kontrollera och avbryt förfallna ordrar innan vi hämtar den specifika
+            await CancelExpiredOrders();
+
             var order = await _context.Orders
                 .Include(o => o.OrderItems)
                 .ThenInclude(oi => oi.Product)
@@ -146,18 +163,23 @@ namespace OnlineShop_API.Controllers
 
         // PUT: api/orders/{id}/status
         [HttpPut("{id}/status")]
-        [Authorize(Policy = IdentityData.AdminUserPolicyName)] // Endast administratörer kan uppdatera orderstatus
-        public async Task<IActionResult> UpdateOrderStatus(int id, [FromBody] string status)
+        [Authorize(Policy = IdentityData.AdminUserPolicyName)]
+        public async Task<IActionResult> UpdateOrderStatus(int id, [FromBody] UpdateOrderStatusDto updateDto)
         {
+            if (updateDto == null || string.IsNullOrWhiteSpace(updateDto.Status))
+            {
+                return BadRequest("Status is required.");
+            }
+
             var order = await _context.Orders.FindAsync(id);
             if (order == null)
             {
-                return NotFound();
+                return NotFound("Order not found.");
             }
 
-            if (!Enum.TryParse(typeof(Status), status, true, out var newStatus))
+            if (!Enum.TryParse(typeof(Status), updateDto.Status, true, out var newStatus))
             {
-                return BadRequest("Invalid status value");
+                return BadRequest("Invalid status value.");
             }
 
             order.Status = (Status)newStatus;
@@ -165,6 +187,7 @@ namespace OnlineShop_API.Controllers
 
             return NoContent();
         }
+
 
         // PUT: api/orders/{id}
         [HttpPut("{id}")]
@@ -186,6 +209,7 @@ namespace OnlineShop_API.Controllers
                     ProductId = item.ProductId,
                     Quantity = item.Quantity,
                     OrderId = order.Id
+
                 };
                 order.OrderItems.Add(newItem);
             }

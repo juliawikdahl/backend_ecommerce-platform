@@ -8,9 +8,9 @@ using System.Linq;
 using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
 using System;
-using System.IO;
 using OnlineShop_API.Dto;
 using Microsoft.AspNetCore.Authorization;
+using System.Security.Claims;
 
 namespace OnlineShop_API.Controllers
 {
@@ -27,10 +27,10 @@ namespace OnlineShop_API.Controllers
             _context = context;
         }
 
-        // Skapa betalning och returnera clientSecret
-        [HttpPost]
+        // Skapa betalning (Stripe eller fejkad betalning baserat på useFakePayment)
+        [HttpPost("create")]
         [Authorize]
-        public async Task<IActionResult> CreatePayment([FromBody] PaymentDto paymentDto)
+        public async Task<IActionResult> CreatePayment([FromBody] PaymentDto paymentDto, [FromQuery] bool useFakePayment = false)
         {
             if (paymentDto == null || paymentDto.OrderId == 0)
             {
@@ -39,10 +39,7 @@ namespace OnlineShop_API.Controllers
 
             try
             {
-                var stripeSecretKey = _configuration["Stripe:SecretKey"];
-                StripeConfiguration.ApiKey = stripeSecretKey;
-
-                // Hämta ordern från databasen
+                // Hämta ordern från databasen och kontrollera användarens ID
                 var order = await _context.Orders
                     .Where(o => o.Id == paymentDto.OrderId && o.Status == Status.Pending)
                     .FirstOrDefaultAsync();
@@ -52,22 +49,47 @@ namespace OnlineShop_API.Controllers
                     return NotFound("Order not found or already processed.");
                 }
 
-                // Omvandla belopp till cent (öre)
-                long amount = (long)(order.TotalAmount * 100);
-
-                // Skapa PaymentIntent
-                var paymentIntentService = new PaymentIntentService();
-                var paymentIntentCreateOptions = new PaymentIntentCreateOptions
+                // Kontrollera om den aktuella användaren är den som har gjort beställningen
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null || !int.TryParse(userIdClaim.Value, out int userId) || userId != order.UserId)
                 {
-                    Amount = amount,
-                    Currency = "sek",
-                    PaymentMethodTypes = new List<string> { paymentDto.PaymentMethod },
-                    Description = $"Payment for Order {order.Id}"
-                };
+                    return Unauthorized("You are not authorized to make this payment.");
+                }
 
-                var paymentIntent = await paymentIntentService.CreateAsync(paymentIntentCreateOptions);
+                // Kolla om Stripe är aktiverat via appsettings.json
+                var stripeEnabled = _configuration.GetValue<bool>("Stripe:Enabled");
 
-                return Ok(new { clientSecret = paymentIntent.ClientSecret });
+                if (useFakePayment)
+                {
+                    // Om fejkbetalning är aktiverat
+                    return Ok(new { clientSecret = "fake_payment_client_secret" }); // Fejkad betalning
+                }
+
+                // Om Stripe är aktiverat och fejkbetalning inte används
+                if (stripeEnabled)
+                {
+                    var stripeSecretKey = _configuration["Stripe:SecretKey"];
+                    StripeConfiguration.ApiKey = stripeSecretKey;
+
+                    // Omvandla belopp till cent (öre)
+                    long amount = (long)(order.TotalAmount * 100);
+
+                    // Skapa PaymentIntent via Stripe
+                    var paymentIntentService = new PaymentIntentService();
+                    var paymentIntentCreateOptions = new PaymentIntentCreateOptions
+                    {
+                        Amount = amount,
+                        Currency = "sek",
+                        PaymentMethodTypes = new List<string> { paymentDto.PaymentMethod },
+                        Description = $"Payment for Order {order.Id}"
+                    };
+
+                    var paymentIntent = await paymentIntentService.CreateAsync(paymentIntentCreateOptions);
+
+                    return Ok(new { clientSecret = paymentIntent.ClientSecret });
+                }
+
+                return BadRequest("Stripe is not enabled.");
             }
             catch (Exception ex)
             {
@@ -75,8 +97,33 @@ namespace OnlineShop_API.Controllers
             }
         }
 
+        // Skapa en fejkad betalning (utan Stripe)
+        [HttpPost("fake/create")]
+        [Authorize]
+        public IActionResult CreateFakePayment([FromBody] PaymentDto paymentDto)
+        {
+            if (paymentDto == null || paymentDto.OrderId == 0)
+            {
+                return BadRequest("Invalid payment data.");
+            }
+
+            try
+            {
+                // Här kan du simulera logiken för fejkad betalning
+                var fakeClientSecret = "fake_payment_client_secret";
+
+                // Simulera betalningen utan att använda Stripe
+                return Ok(new { clientSecret = fakeClientSecret });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest($"Error creating fake payment: {ex.Message}");
+            }
+        }
+
         // Bekräfta ordern och uppdatera statusen när betalningen är slutförd
         [HttpPost("{orderId}/confirm")]
+        [Authorize]
         public async Task<IActionResult> ConfirmOrder(int orderId, [FromBody] PaymentConfirmationDto confirmationDto)
         {
             try

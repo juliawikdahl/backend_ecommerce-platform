@@ -8,7 +8,7 @@ namespace OnlineShop_API.Dto
      
 
         [Required]
-        public List<OrderItemDto> OrderItems { get; set; } // Lista av orderartiklar
+        public List<OrderItemCreateDto> OrderItems { get; set; } // Lista av orderartiklar
 
    
 

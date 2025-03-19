@@ -22,13 +22,18 @@ namespace OnlineShop_API.DTOs
         public decimal Price { get; set; } // Priset på produkten
 
         [Required]
-        public string EncodedImage { get; set; } // Base64-sträng för produktens bild
+        [Range(0, int.MaxValue, ErrorMessage = "Stock quantity must be a non-negative integer.")]
+        public int StockQuantity { get; set; } // Lagerantalet för produkten
 
         [Required]
         public int SubCategoryId { get; set; } // ID för subkategorin produkten tillhör
-
+        public string SubCategoryName { get; set; }
         [Required]
-        [Range(0, int.MaxValue, ErrorMessage = "Stock quantity must be a non-negative integer.")]
-        public int StockQuantity { get; set; } // Lagerantalet för produkten
+        public int CategoryId { get; set; }
+        public string CategoryName { get; set; }
+        [Required]
+        public string EncodedImage { get; set; } // Base64-sträng för produktens bild
+        public DateTime CreatedAt { get; set; }
+
     }
 }
